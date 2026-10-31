@@ -1,0 +1,1280 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Office Runner 3D</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- FontAwesome icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800;900&display=swap" rel="stylesheet">
+    
+    <style>
+        * {
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+            font-family: 'Outfit', sans-serif;
+        }
+        
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #0f172a;
+            color: #ffffff;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        .ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .interactive {
+            pointer-events: auto;
+        }
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        .glow-button {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+        }
+
+        .glow-button:hover {
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: 0 0 30px rgba(59, 130, 246, 0.7);
+        }
+
+        .glow-button:active {
+            transform: translateY(1px) scale(0.98);
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-8px); }
+        }
+
+        .animate-float {
+            animation: float 2.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse-red {
+            0%, 100% { opacity: 0; }
+            50% { opacity: 0.35; }
+        }
+
+        .boss-warning-overlay {
+            animation: pulse-red 0.5s infinite;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-white overflow-hidden select-none">
+
+    <!-- 3D Canvas Container -->
+    <div id="canvas-container"></div>
+
+    <!-- Red Screen Warning Flash -->
+    <div id="boss-flash" class="absolute inset-0 bg-red-600/30 z-20 pointer-events-none hidden boss-warning-overlay"></div>
+
+    <!-- UI Overlay Layer -->
+    <div class="ui-overlay flex flex-col justify-between p-4 md:p-6">
+        
+        <!-- Top HUD (Score, Coffee, HighScore, Boss HP) -->
+        <div id="hud" class="flex flex-col gap-3 w-full max-w-4xl mx-auto opacity-0 transition-opacity duration-500">
+            
+            <div class="flex justify-between items-start w-full">
+                <!-- Distance Score -->
+                <div class="glass-panel px-4 py-2 md:px-6 md:py-3 rounded-2xl flex flex-col gap-1 border-blue-500/30">
+                    <span class="text-xs font-semibold text-blue-400 tracking-wider uppercase"><i class="fa-solid fa-briefcase mr-1"></i> DISTANCE</span>
+                    <div class="flex items-baseline gap-1">
+                        <span id="score-text" class="text-2xl md:text-4xl font-black text-white tracking-tight">0</span>
+                        <span class="text-xs text-blue-300 font-bold">m</span>
+                    </div>
+                </div>
+
+                <!-- Coffee Boosts Collected -->
+                <div class="glass-panel px-4 py-2 md:px-6 md:py-3 rounded-2xl flex items-center gap-3 border-amber-500/30">
+                    <div class="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400 text-lg font-bold">
+                        <i class="fa-solid fa-mug-hot"></i>
+                    </div>
+                    <div class="flex flex-col">
+                        <span class="text-xs font-semibold text-amber-400 tracking-wider uppercase">MUNITIONS (CAFÉS)</span>
+                        <span id="coins-text" class="text-xl md:text-3xl font-black text-amber-300">0</span>
+                    </div>
+                </div>
+
+                <!-- High Score -->
+                <div class="glass-panel px-4 py-2 md:px-6 md:py-3 rounded-2xl flex flex-col gap-1 border-emerald-500/30 hidden sm:flex">
+                    <span class="text-xs font-semibold text-emerald-400 tracking-wider uppercase"><i class="fa-solid fa-trophy mr-1"></i> RECORD</span>
+                    <span id="high-score-text" class="text-2xl md:text-3xl font-black text-emerald-200">0</span>
+                </div>
+            </div>
+
+            <!-- Boss Health Bar Container (Hidden by default) -->
+            <div id="boss-hp-container" class="w-full glass-panel p-3 rounded-2xl border-red-500/40 flex flex-col gap-1.5 hidden transition-all">
+                <div class="flex justify-between items-center text-xs font-black uppercase text-red-400 tracking-wider">
+                    <span><i class="fa-solid fa-skull mr-1"></i> MEGA PATRON BOISSEL</span>
+                    <span id="boss-hp-text">50 / 50 HP</span>
+                </div>
+                <div class="w-full h-4 bg-slate-900/80 rounded-full overflow-hidden border border-red-500/30 p-0.5">
+                    <div id="boss-hp-bar" class="h-full bg-gradient-to-r from-red-600 via-amber-500 to-red-500 rounded-full transition-all duration-200" style="width: 100%;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Boss Warning Banner Notification -->
+        <div id="boss-banner" class="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 hidden flex-col items-center justify-center text-center z-30 pointer-events-none transition-all duration-300 scale-90 opacity-0">
+            <div class="bg-red-600/90 text-white px-8 py-4 rounded-3xl font-black text-2xl md:text-4xl tracking-widest border-4 border-amber-400 shadow-2xl shadow-red-600/80 uppercase animate-bounce">
+                ⚠️ LE PATRON BOISSEL APPROCHE ! ⚠️
+            </div>
+            <p class="text-amber-300 font-extrabold text-sm md:text-base mt-2 bg-slate-900/80 px-4 py-1 rounded-full border border-amber-400/30">
+                Lancez vos cafés pour détruire son HP (1 Café = -1 HP) !
+            </p>
+        </div>
+
+        <!-- Start Screen Menu -->
+        <div id="start-screen" class="interactive absolute inset-0 flex items-center justify-center bg-slate-950/70 backdrop-blur-md p-4 transition-all duration-500">
+            <div class="glass-panel p-8 md:p-12 rounded-3xl max-w-lg w-full text-center flex flex-col items-center gap-6 border-blue-500/30 shadow-2xl">
+                <div class="w-20 h-20 bg-gradient-to-tr from-blue-600 to-indigo-600 rounded-3xl flex items-center justify-center shadow-lg shadow-blue-500/40 animate-float">
+                    <i class="fa-solid fa-user-tie text-4xl text-white"></i>
+                </div>
+
+                <div class="space-y-2">
+                    <h1 class="text-4xl md:text-5xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-200 to-amber-300">
+                        OFFICE RUNNER
+                    </h1>
+                    <p class="text-slate-300 text-sm md:text-base">Échappez au burnout ! Évitez les imprimantes, fauteuils et dossiers, et faites le plein de café !</p>
+                </div>
+
+                <!-- Controls Info -->
+                <div class="grid grid-cols-2 gap-3 w-full bg-slate-800/60 p-4 rounded-2xl text-xs text-slate-300 border border-white/10">
+                    <div class="flex items-center gap-2 justify-center">
+                        <span class="px-2 py-1 bg-slate-700 rounded text-xs font-mono font-bold text-blue-300">← / Q</span>
+                        <span>Voie Gauche</span>
+                    </div>
+                    <div class="flex items-center gap-2 justify-center">
+                        <span class="px-2 py-1 bg-slate-700 rounded text-xs font-mono font-bold text-blue-300">→ / D</span>
+                        <span>Voie Droite</span>
+                    </div>
+                    <div class="col-span-2 text-center text-slate-400 text-[11px] pt-2 border-t border-white/5">
+                        <i class="fa-solid fa-hand-pointer mr-1"></i> Écran tactile : Glisser à gauche / droite
+                    </div>
+                </div>
+
+                <button id="start-btn" class="glow-button w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-extrabold text-lg rounded-2xl tracking-wide uppercase transition-all">
+                    Commencer la journée
+                </button>
+            </div>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="game-over-screen" class="interactive absolute inset-0 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 hidden opacity-0 transition-all duration-500">
+            <div class="glass-panel p-8 md:p-10 rounded-3xl max-w-md w-full text-center flex flex-col items-center gap-6 border-red-500/30 shadow-2xl">
+                <div class="w-16 h-16 bg-red-500/20 text-red-400 border border-red-500/40 rounded-2xl flex items-center justify-center text-3xl">
+                    <i class="fa-solid fa-file-circle-xmark"></i>
+                </div>
+
+                <div>
+                    <h2 class="text-3xl font-black text-white">ACCIDENT DE PARCOURS !</h2>
+                    <p class="text-slate-400 text-sm mt-1">Vous avez heurté du matériel de bureau !</p>
+                </div>
+
+                <!-- Final Stats -->
+                <div class="w-full bg-slate-900/80 p-4 rounded-2xl border border-white/5 flex flex-col gap-3">
+                    <div class="flex justify-between items-center text-sm">
+                        <span class="text-slate-400">Distance Parcourue</span>
+                        <span id="final-score" class="text-2xl font-black text-blue-400">0 m</span>
+                    </div>
+                    <div class="h-px bg-white/5 w-full"></div>
+                    <div class="flex justify-between items-center text-sm">
+                        <span class="text-slate-400">Pause Café Récoltée</span>
+                        <span id="final-coins" class="text-xl font-bold text-amber-400">0</span>
+                    </div>
+                    <div class="h-px bg-white/5 w-full"></div>
+                    <div class="flex justify-between items-center text-sm">
+                        <span class="text-slate-400">Meilleure Distance</span>
+                        <span id="final-best" class="text-xl font-bold text-emerald-400">0 m</span>
+                    </div>
+                </div>
+
+                <button id="restart-btn" class="glow-button w-full py-4 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-extrabold text-lg rounded-2xl tracking-wide uppercase transition-all">
+                    Recommencer la journée
+                </button>
+            </div>
+        </div>
+
+        <!-- Touch Controls for Mobile -->
+        <div id="touch-controls" class="interactive flex justify-between w-full max-w-lg mx-auto opacity-0 transition-opacity duration-500 pb-2">
+            <button id="btn-left" class="w-16 h-16 rounded-2xl bg-slate-800/80 border border-white/20 text-blue-400 text-2xl flex items-center justify-center active:bg-blue-600 active:text-white transition-all shadow-lg">
+                <i class="fa-solid fa-arrow-left"></i>
+            </button>
+            <button id="btn-right" class="w-16 h-16 rounded-2xl bg-slate-800/80 border border-white/20 text-blue-400 text-2xl flex items-center justify-center active:bg-blue-600 active:text-white transition-all shadow-lg">
+                <i class="fa-solid fa-arrow-right"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Game Script -->
+    <script>
+        // --- GAME CONFIGURATION & STATE ---
+        const CONFIG = {
+            lanes: [-2.2, 0, 2.2], // 3 Lanes along X axis
+            speedInitial: 0.38,
+            speedMax: 0.90,
+            speedAcceleration: 0.00007,
+            chunkLength: 40,
+            visibleChunks: 5,
+            cameraOffset: { x: 0, y: 3.8, z: 6.5 }
+        };
+
+        let state = {
+            isPlaying: false,
+            currentLane: 1, // 0: Left, 1: Center, 2: Right
+            targetX: CONFIG.lanes[1],
+            speed: CONFIG.speedInitial,
+            distance: 0,
+            coins: 0,
+            highScore: localStorage.getItem('officerunner_highscore') || 0,
+            frameCount: 0,
+            playerZ: 0,
+            nextSpawnZ: -25,
+            chunks: [],
+            obstacles: [],
+            coinsList: [],
+            particles: [],
+            // Boss Fight state
+            bossActive: false,
+            bossDefeated: false,
+            bossMesh: null,
+            bossHp: 50,
+            bossMaxHp: 50,
+            bossProjectiles: [],
+            playerProjectiles: [],
+            lastBossAttack: 0,
+            lastAutoShoot: 0
+        };
+
+        // --- THREE.JS GLOBALS ---
+        let scene, camera, renderer;
+        let playerGroup, playerBody, briefcase, headMesh, leftArm, rightArm, leftLeg, rightLeg;
+        let ambientLight, dirLight;
+
+        // --- DOM ELEMENTS ---
+        const hud = document.getElementById('hud');
+        const startScreen = document.getElementById('start-screen');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const scoreText = document.getElementById('score-text');
+        const coinsText = document.getElementById('coins-text');
+        const highScoreText = document.getElementById('high-score-text');
+        const finalScore = document.getElementById('final-score');
+        const finalCoins = document.getElementById('final-coins');
+        const finalBest = document.getElementById('final-best');
+        const touchControls = document.getElementById('touch-controls');
+        
+        // Boss DOM
+        const bossHpContainer = document.getElementById('boss-hp-container');
+        const bossHpBar = document.getElementById('boss-hp-bar');
+        const bossHpText = document.getElementById('boss-hp-text');
+        const bossBanner = document.getElementById('boss-banner');
+        const bossFlash = document.getElementById('boss-flash');
+
+        // --- INITIALIZATION ---
+        function init() {
+            highScoreText.textContent = Math.floor(state.highScore);
+
+            // Scene setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1e293b);
+            scene.fog = new THREE.FogExp2(0x1e293b, 0.018);
+
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 150);
+            camera.position.set(CONFIG.cameraOffset.x, CONFIG.cameraOffset.y, CONFIG.cameraOffset.z);
+
+            // Renderer setup
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            // Office Lighting
+            setupOfficeLights();
+
+            // Create Office Worker Character
+            createOfficeWorker();
+
+            // Build Environment
+            initWorld();
+
+            // Event Listeners
+            setupEventListeners();
+            window.addEventListener('resize', onWindowResize);
+
+            renderer.render(scene, camera);
+        }
+
+        // --- OFFICE LIGHTING ---
+        function setupOfficeLights() {
+            ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+
+            dirLight = new THREE.DirectionalLight(0xfffbeb, 0.8);
+            dirLight.position.set(12, 25, 10);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 1024;
+            dirLight.shadow.mapSize.height = 1024;
+            dirLight.shadow.camera.near = 0.5;
+            dirLight.shadow.camera.far = 60;
+            dirLight.shadow.camera.left = -10;
+            dirLight.shadow.camera.right = 10;
+            dirLight.shadow.camera.top = 10;
+            dirLight.shadow.camera.bottom = -10;
+            scene.add(dirLight);
+        }
+
+        // --- CREATING OFFICE WORKER (CHARACTER) ---
+        function createOfficeWorker() {
+            playerGroup = new THREE.Group();
+            playerGroup.position.set(CONFIG.lanes[1], 0, 0);
+
+            // Materials
+            const suitMat = new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.5 }); // Dark blue suit
+            const shirtMat = new THREE.MeshStandardMaterial({ color: 0xffffff }); // White shirt
+            const tieMat = new THREE.MeshStandardMaterial({ color: 0xd97706 }); // Orange/Red tie
+            const skinMat = new THREE.MeshStandardMaterial({ color: 0xfde047, roughness: 0.6 }); // Stylized skin
+            const hairMat = new THREE.MeshStandardMaterial({ color: 0x451a03 }); // Dark hair
+            const leatherMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.3 }); // Leather briefcase/shoes
+
+            // Body / Torso (Suit Jacket)
+            const bodyGeo = new THREE.BoxGeometry(0.6, 0.7, 0.35);
+            playerBody = new THREE.Mesh(bodyGeo, suitMat);
+            playerBody.position.y = 1.05;
+            playerBody.castShadow = true;
+            playerGroup.add(playerBody);
+
+            // Shirt collar & Tie
+            const shirtGeo = new THREE.BoxGeometry(0.25, 0.4, 0.05);
+            const shirt = new THREE.Mesh(shirtGeo, shirtMat);
+            shirt.position.set(0, 1.1, -0.16);
+            playerGroup.add(shirt);
+
+            const tieGeo = new THREE.BoxGeometry(0.1, 0.35, 0.04);
+            const tie = new THREE.Mesh(tieGeo, tieMat);
+            tie.position.set(0, 1.05, -0.18);
+            playerGroup.add(tie);
+
+            // Head & Hair
+            const headGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+            headMesh = new THREE.Mesh(headGeo, skinMat);
+            headMesh.position.y = 1.6;
+            headMesh.castShadow = true;
+            playerGroup.add(headMesh);
+
+            const hairGeo = new THREE.BoxGeometry(0.44, 0.15, 0.44);
+            const hair = new THREE.Mesh(hairGeo, hairMat);
+            hair.position.set(0, 1.78, 0);
+            playerGroup.add(hair);
+
+            // Glasses
+            const glassGeo = new THREE.BoxGeometry(0.36, 0.08, 0.05);
+            const glassMat = new THREE.MeshBasicMaterial({ color: 0x0f172a });
+            const glasses = new THREE.Mesh(glassGeo, glassMat);
+            glasses.position.set(0, 1.62, -0.21);
+            playerGroup.add(glasses);
+
+            // Arms
+            const armGeo = new THREE.BoxGeometry(0.16, 0.6, 0.16);
+            leftArm = new THREE.Mesh(armGeo, suitMat);
+            leftArm.position.set(-0.42, 1.05, 0);
+            leftArm.castShadow = true;
+            playerGroup.add(leftArm);
+
+            rightArm = new THREE.Mesh(armGeo, suitMat);
+            rightArm.position.set(0.42, 1.05, 0);
+            rightArm.castShadow = true;
+            playerGroup.add(rightArm);
+
+            // Briefcase (Attached to right arm)
+            const caseGeo = new THREE.BoxGeometry(0.12, 0.35, 0.45);
+            briefcase = new THREE.Mesh(caseGeo, leatherMat);
+            briefcase.position.set(0.48, 0.7, 0);
+            briefcase.castShadow = true;
+            playerGroup.add(briefcase);
+
+            // Legs
+            const legGeo = new THREE.BoxGeometry(0.2, 0.7, 0.2);
+            leftLeg = new THREE.Mesh(legGeo, suitMat);
+            leftLeg.position.set(-0.16, 0.35, 0);
+            leftLeg.castShadow = true;
+            playerGroup.add(leftLeg);
+
+            rightLeg = new THREE.Mesh(legGeo, suitMat);
+            rightLeg.position.set(0.16, 0.35, 0);
+            rightLeg.castShadow = true;
+            playerGroup.add(rightLeg);
+
+            // Shoes
+            const shoeGeo = new THREE.BoxGeometry(0.22, 0.12, 0.3);
+            const leftShoe = new THREE.Mesh(shoeGeo, leatherMat);
+            leftShoe.position.set(-0.16, 0.06, -0.04);
+            playerGroup.add(leftShoe);
+
+            const rightShoe = new THREE.Mesh(shoeGeo, leatherMat);
+            rightShoe.position.set(0.16, 0.06, -0.04);
+            playerGroup.add(rightShoe);
+
+            scene.add(playerGroup);
+        }
+
+        // --- PROCEDURAL OFFICE ENVIRONMENT ---
+        function createOfficeChunk(chunkZ) {
+            const chunkGroup = new THREE.Group();
+            chunkGroup.position.z = chunkZ;
+
+            // Carpet Floor
+            const floorGeo = new THREE.PlaneGeometry(10, CONFIG.chunkLength);
+            const floorMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.8 }); // Office carpet blue/grey
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.z = -CONFIG.chunkLength / 2;
+            floor.receiveShadow = true;
+            chunkGroup.add(floor);
+
+            // Office Lane Lines
+            [-1.1, 1.1].forEach(x => {
+                for (let z = 0; z > -CONFIG.chunkLength; z -= 8) {
+                    const lineGeo = new THREE.PlaneGeometry(0.08, 4);
+                    const lineMat = new THREE.MeshBasicMaterial({ color: 0x475569, transparent: true, opacity: 0.5 });
+                    const line = new THREE.Mesh(lineGeo, lineMat);
+                    line.rotation.x = -Math.PI / 2;
+                    line.position.set(x, 0.01, z);
+                    chunkGroup.add(line);
+                }
+            });
+
+            // Office Walls
+            [-5, 5].forEach((x, side) => {
+                const wallGeo = new THREE.BoxGeometry(0.4, 5, CONFIG.chunkLength);
+                const wallMat = new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.5 });
+                const wall = new THREE.Mesh(wallGeo, wallMat);
+                wall.position.set(x, 2.5, -CONFIG.chunkLength / 2);
+                chunkGroup.add(wall);
+
+                // Baseboard / Skirting
+                const baseGeo = new THREE.BoxGeometry(0.42, 0.3, CONFIG.chunkLength);
+                const baseMat = new THREE.MeshStandardMaterial({ color: 0x0f172a });
+                const base = new THREE.Mesh(baseGeo, baseMat);
+                base.position.set(x, 0.15, -CONFIG.chunkLength / 2);
+                chunkGroup.add(base);
+            });
+
+            // Ceiling Lights & Open Space Decor
+            for (let z = -4; z > -CONFIG.chunkLength; z -= 10) {
+                // Fluorescent Ceiling Lights
+                const lightGeo = new THREE.BoxGeometry(3, 0.1, 1);
+                const lightMat = new THREE.MeshBasicMaterial({ color: 0xfffbeb });
+                const ceilingLight = new THREE.Mesh(lightGeo, lightMat);
+                ceilingLight.position.set(0, 4.8, z);
+                chunkGroup.add(ceilingLight);
+
+                // Side Plants & Water Coolers
+                [-4.2, 4.2].forEach((x, index) => {
+                    if (Math.random() > 0.4) {
+                        // Indoor Office Plant
+                        const potGeo = new THREE.CylinderGeometry(0.3, 0.25, 0.6, 8);
+                        const potMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8 });
+                        const pot = new THREE.Mesh(potGeo, potMat);
+                        pot.position.set(x, 0.3, z);
+                        chunkGroup.add(pot);
+
+                        const plantGeo = new THREE.DodecahedronGeometry(0.45);
+                        const plantMat = new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.6 });
+                        const plant = new THREE.Mesh(plantGeo, plantMat);
+                        plant.position.set(x, 0.8, z);
+                        chunkGroup.add(plant);
+                    }
+                });
+            }
+
+            scene.add(chunkGroup);
+            state.chunks.push({ group: chunkGroup, z: chunkZ });
+        }
+
+        function initWorld() {
+            for (let i = 0; i < CONFIG.visibleChunks; i++) {
+                createOfficeChunk(10 - (i * CONFIG.chunkLength));
+            }
+        }
+
+        function updateWorld() {
+            const oldestChunk = state.chunks[0];
+            if (oldestChunk && state.playerZ < oldestChunk.z - CONFIG.chunkLength - 10) {
+                scene.remove(oldestChunk.group);
+                oldestChunk.group.traverse(child => {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) child.material.dispose();
+                });
+                state.chunks.shift();
+
+                const newestChunk = state.chunks[state.chunks.length - 1];
+                const newZ = newestChunk.z - CONFIG.chunkLength;
+                createOfficeChunk(newZ);
+            }
+        }
+
+        // --- SPAWN OFFICE OBSTACLES & COFFEE ---
+        function spawnEntitiesAhead() {
+            if (state.playerZ - 60 < state.nextSpawnZ) {
+                const laneIndex = Math.floor(Math.random() * 3);
+                const laneX = CONFIG.lanes[laneIndex];
+                const spawnZ = state.nextSpawnZ;
+
+                // Pendant le boss fight, apparition constante de café pour recharger les munitions
+                if (state.bossActive) {
+                    spawnCoffeeGroup(laneX, spawnZ);
+                    state.nextSpawnZ -= 14;
+                    return;
+                }
+
+                const obsType = Math.random();
+
+                if (obsType < 0.5) {
+                    // --- OBSTACLE 1: PATRON AIGRI (ANGRY BOSS) ---
+                    const bossGroup = new THREE.Group();
+
+                    // Materials
+                    const suitMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.3 }); // Costume sombre
+                    const shirtMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+                    const tieMat = new THREE.MeshStandardMaterial({ color: 0xd97706 }); // Cravate rouge/orange
+                    const skinMat = new THREE.MeshStandardMaterial({ color: 0xfca5a5, roughness: 0.6 }); // Teint furieux/rougeâtre
+                    const hairMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8 }); // Cheveux gris
+                    const glassMat = new THREE.MeshBasicMaterial({ color: 0x000000 }); // Lunettes noires
+
+                    // Boss Body (Imposant)
+                    const bodyGeo = new THREE.BoxGeometry(0.85, 0.85, 0.45);
+                    const body = new THREE.Mesh(bodyGeo, suitMat);
+                    body.position.y = 1.15;
+                    body.castShadow = true;
+                    bossGroup.add(body);
+
+                    // Chemise & Cravate
+                    const shirtGeo = new THREE.BoxGeometry(0.3, 0.5, 0.05);
+                    const shirt = new THREE.Mesh(shirtGeo, shirtMat);
+                    shirt.position.set(0, 1.2, -0.21);
+                    bossGroup.add(shirt);
+
+                    const tieGeo = new THREE.BoxGeometry(0.12, 0.45, 0.04);
+                    const tie = new THREE.Mesh(tieGeo, tieMat);
+                    tie.position.set(0, 1.15, -0.24);
+                    bossGroup.add(tie);
+
+                    // Tête du boss
+                    const headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+                    const head = new THREE.Mesh(headGeo, skinMat);
+                    head.position.y = 1.8;
+                    head.castShadow = true;
+                    bossGroup.add(head);
+
+                    // Cheveux gris sur les côtés
+                    const hairGeo = new THREE.BoxGeometry(0.54, 0.18, 0.54);
+                    const hair = new THREE.Mesh(hairGeo, hairMat);
+                    hair.position.set(0, 2.0, 0);
+                    bossGroup.add(hair);
+
+                    // Lunettes noires
+                    const glassGeo = new THREE.BoxGeometry(0.46, 0.12, 0.08);
+                    const glasses = new THREE.Mesh(glassGeo, glassMat);
+                    glasses.position.set(0, 1.84, -0.26);
+                    bossGroup.add(glasses);
+
+                    // Bras croisés (Posture d'autorité)
+                    const crossedArmsGeo = new THREE.BoxGeometry(0.95, 0.28, 0.35);
+                    const crossedArms = new THREE.Mesh(crossedArmsGeo, suitMat);
+                    crossedArms.position.set(0, 1.15, -0.22);
+                    crossedArms.castShadow = true;
+                    bossGroup.add(crossedArms);
+
+                    // Jambes immobiles
+                    const legGeo = new THREE.BoxGeometry(0.28, 0.75, 0.28);
+                    const leftLeg = new THREE.Mesh(legGeo, suitMat);
+                    leftLeg.position.set(-0.22, 0.38, 0);
+                    bossGroup.add(leftLeg);
+
+                    const rightLeg = new THREE.Mesh(legGeo, suitMat);
+                    rightLeg.position.set(0.22, 0.38, 0);
+                    bossGroup.add(rightLeg);
+
+                    // Bulle d'expression rouge "WORK!" / "RTO!"
+                    const bubbleCanvas = document.createElement('canvas');
+                    bubbleCanvas.width = 256;
+                    bubbleCanvas.height = 128;
+                    const ctx = bubbleCanvas.getContext('2d');
+
+                    // Fond bulle rouge
+                    ctx.fillStyle = '#dc2626';
+                    ctx.beginPath();
+                    ctx.roundRect(10, 10, 236, 90, 20);
+                    ctx.fill();
+
+                    // Petite pointe de bulle
+                    ctx.beginPath();
+                    ctx.moveTo(118, 100);
+                    ctx.lineTo(100, 125);
+                    ctx.lineTo(136, 100);
+                    ctx.fill();
+
+                    // Texte
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = '900 42px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    const textChoice = Math.random() > 0.5 ? 'WORK!' : 'RTO!';
+                    ctx.fillText(textChoice, 128, 55);
+
+                    const bubbleTexture = new THREE.CanvasTexture(bubbleCanvas);
+                    const bubbleMat = new THREE.SpriteMaterial({ map: bubbleTexture, transparent: true });
+                    const bubbleSprite = new THREE.Sprite(bubbleMat);
+                    bubbleSprite.position.set(0, 2.65, 0);
+                    bubbleSprite.scale.set(1.8, 0.9, 1);
+                    bossGroup.add(bubbleSprite);
+
+                    bossGroup.position.set(laneX, 0, spawnZ);
+                    scene.add(bossGroup);
+                    state.obstacles.push(bossGroup);
+
+                } else {
+                    // --- OBSTACLE 2: LOGO GOOGLE MEET 3D GEANT ---
+                    const meetGroup = new THREE.Group();
+
+                    // Couleurs officielles Google
+                    const blueMat   = new THREE.MeshStandardMaterial({ color: 0x1a73e8, roughness: 0.2 }); // Bleu
+                    const greenMat  = new THREE.MeshStandardMaterial({ color: 0x34a853, roughness: 0.2 }); // Vert
+                    const yellowMat = new THREE.MeshStandardMaterial({ color: 0xfbc02d, roughness: 0.2 }); // Jaune
+                    const redMat    = new THREE.MeshStandardMaterial({ color: 0xea4335, roughness: 0.2 }); // Rouge
+
+                    // Corps rectangulaire arrondi / Décomposition du rectangle caméra
+                    const partWidth = 0.35;
+                    const mainHeight = 1.3;
+                    const depth = 0.25;
+
+                    // Côté gauche (Bleu)
+                    const leftPart = new THREE.Mesh(new THREE.BoxGeometry(partWidth, mainHeight, depth), blueMat);
+                    leftPart.position.set(-0.525, 0, 0);
+                    leftPart.castShadow = true;
+                    meetGroup.add(leftPart);
+
+                    // Haut centre (Vert)
+                    const topPart = new THREE.Mesh(new THREE.BoxGeometry(0.7, partWidth, depth), greenMat);
+                    topPart.position.set(0, (mainHeight / 2) - (partWidth / 2), 0);
+                    topPart.castShadow = true;
+                    meetGroup.add(topPart);
+
+                    // Bas centre (Jaune)
+                    const bottomPart = new THREE.Mesh(new THREE.BoxGeometry(0.7, partWidth, depth), yellowMat);
+                    bottomPart.position.set(0, -(mainHeight / 2) + (partWidth / 2), 0);
+                    bottomPart.castShadow = true;
+                    meetGroup.add(bottomPart);
+
+                    // Côté droit (Rouge)
+                    const rightPart = new THREE.Mesh(new THREE.BoxGeometry(partWidth, mainHeight - 0.2, depth), redMat);
+                    rightPart.position.set(0.525, -0.1, 0);
+                    rightPart.castShadow = true;
+                    meetGroup.add(rightPart);
+
+                    // Triangle / Cône Caméra Meet à droite (Vert/Bleu)
+                    const camTriangleGeo = new THREE.ConeGeometry(0.55, depth, 3);
+                    const camTriangle = new THREE.Mesh(camTriangleGeo, greenMat);
+                    camTriangle.rotation.x = Math.PI / 2;
+                    camTriangle.rotation.z = -Math.PI / 2;
+                    camTriangle.position.set(1.0, 0, 0);
+                    camTriangle.castShadow = true;
+                    meetGroup.add(camTriangle);
+
+                    // Positionnement du Logo Meet
+                    meetGroup.position.set(laneX, 1.25, spawnZ);
+                    // Animation de légère rotation oscillante du logo Meet
+                    meetGroup.userData = { isMeetLogo: true, baseZ: spawnZ };
+
+                    scene.add(meetGroup);
+                    state.obstacles.push(meetGroup);
+                }
+
+                // Spawn Coffee Mugs / Donuts on other lane
+                if (Math.random() < 0.75) {
+                    const coffeeLane = (laneIndex + (Math.random() > 0.5 ? 1 : 2)) % 3;
+                    spawnCoffeeGroup(CONFIG.lanes[coffeeLane], spawnZ);
+                }
+
+                const spacing = Math.max(12, 26 - state.speed * 14);
+                state.nextSpawnZ -= spacing;
+            }
+        }
+
+        // --- BOSS CREATION & BATTLE ---
+        function spawnMegaBoss() {
+            state.bossActive = true;
+            state.bossHp = 50;
+            state.bossMaxHp = 50;
+
+            // UI Boss Display
+            bossHpContainer.classList.remove('hidden');
+            bossHpText.textContent = `${state.bossHp} / ${state.bossMaxHp} HP`;
+            bossHpBar.style.width = '100%';
+
+            // Banner Warning
+            bossBanner.classList.remove('hidden');
+            bossFlash.classList.remove('hidden');
+            setTimeout(() => {
+                bossBanner.classList.add('scale-100', 'opacity-100');
+            }, 50);
+
+            setTimeout(() => {
+                bossBanner.classList.remove('scale-100', 'opacity-100');
+                bossFlash.classList.add('hidden');
+                setTimeout(() => bossBanner.classList.add('hidden'), 300);
+            }, 3000);
+
+            // Construct Mega Boss
+            const bossGroup = new THREE.Group();
+
+            const suitMat = new THREE.MeshStandardMaterial({ color: 0x450a0a, roughness: 0.3 }); // Suit rouge très sombre
+            const shirtMat = new THREE.MeshStandardMaterial({ color: 0x000000 });
+            const tieMat = new THREE.MeshStandardMaterial({ color: 0xef4444 });
+            const skinMat = new THREE.MeshStandardMaterial({ color: 0xb91c1c, roughness: 0.5 }); // Peau rouge furieuse
+            const hairMat = new THREE.MeshStandardMaterial({ color: 0x1e293b });
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 }); // Yeux jaunes brifiants
+
+            // Corps Géant
+            const bodyGeo = new THREE.BoxGeometry(2.5, 2.5, 1.2);
+            const body = new THREE.Mesh(bodyGeo, suitMat);
+            body.position.y = 2.5;
+            body.castShadow = true;
+            bossGroup.add(body);
+
+            // Tête Géante
+            const headGeo = new THREE.BoxGeometry(1.6, 1.6, 1.5);
+            const head = new THREE.Mesh(headGeo, skinMat);
+            head.position.y = 4.25;
+            head.castShadow = true;
+            bossGroup.add(head);
+
+            // Yeux Flamboyants
+            [-0.4, 0.4].forEach(x => {
+                const eyeGeo = new THREE.BoxGeometry(0.35, 0.15, 0.1);
+                const eye = new THREE.Mesh(eyeGeo, eyeMat);
+                eye.position.set(x, 4.4, -0.76);
+                bossGroup.add(eye);
+            });
+
+            // Sourcils Encolérés
+            [-0.4, 0.4].forEach((x, idx) => {
+                const browGeo = new THREE.BoxGeometry(0.45, 0.1, 0.12);
+                const browMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                const brow = new THREE.Mesh(browGeo, browMat);
+                brow.position.set(x, 4.58, -0.78);
+                brow.rotation.z = idx === 0 ? -0.25 : 0.25;
+                bossGroup.add(brow);
+            });
+
+            // Épaulières imposantes
+            [-1.5, 1.5].forEach(x => {
+                const shoulderGeo = new THREE.BoxGeometry(0.9, 0.9, 1.1);
+                const shoulder = new THREE.Mesh(shoulderGeo, suitMat);
+                shoulder.position.set(x, 3.4, 0);
+                bossGroup.add(shoulder);
+            });
+
+            bossGroup.position.set(0, 0, state.playerZ - 28);
+            scene.add(bossGroup);
+            state.bossMesh = bossGroup;
+        }
+
+        function shootCoffeeAtBoss() {
+            if (state.coins <= 0 || !state.bossActive || !state.bossMesh) return;
+
+            state.coins -= 1;
+            coinsText.textContent = state.coins;
+
+            // Projectile Mug
+            const mugGeo = new THREE.CylinderGeometry(0.25, 0.2, 0.45, 12);
+            const mugMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.1, emissive: 0xd97706, emissiveIntensity: 0.5 });
+            const mug = new THREE.Mesh(mugGeo, mugMat);
+
+            mug.position.set(playerGroup.position.x, playerGroup.position.y + 1.2, playerGroup.position.z - 0.5);
+            scene.add(mug);
+
+            state.playerProjectiles.push(mug);
+        }
+
+        function bossAttackPattern() {
+            if (!state.bossActive || !state.bossMesh) return;
+
+            // Attack frequency every ~1.2s
+            if (state.frameCount - state.lastBossAttack > 70) {
+                state.lastBossAttack = state.frameCount;
+
+                const targetLane = CONFIG.lanes[Math.floor(Math.random() * 3)];
+
+                // Projectile Google Meet Rouge d'Attaque
+                const attackGeo = new THREE.BoxGeometry(1.2, 1.2, 1.2);
+                const attackMat = new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0x991b1b, emissiveIntensity: 0.8 });
+                const proj = new THREE.Mesh(attackGeo, attackMat);
+
+                proj.position.set(targetLane, 1.2, state.bossMesh.position.z + 1);
+                scene.add(proj);
+
+                state.bossProjectiles.push(proj);
+            }
+        }
+
+        function updateBossBattle() {
+            if (!state.bossActive || !state.bossMesh) return;
+
+            // Maintain distance ahead of player
+            state.bossMesh.position.z = state.playerZ - 24;
+            state.bossMesh.position.y = Math.sin(state.frameCount * 0.08) * 0.4; // Flottement du boss
+
+            // Auto-shoot coffee if player has collected ammo
+            if (state.coins > 0 && state.frameCount - state.lastAutoShoot > 12) {
+                state.lastAutoShoot = state.frameCount;
+                shootCoffeeAtBoss();
+            }
+
+            // Update Player Coffee Projectiles Flying to Boss
+            for (let i = state.playerProjectiles.length - 1; i >= 0; i--) {
+                const proj = state.playerProjectiles[i];
+                proj.position.z -= 1.1; // Projectile speed forward
+                proj.rotation.x += 0.2;
+                proj.rotation.y += 0.2;
+
+                // Check hit Boss
+                if (proj.position.z <= state.bossMesh.position.z + 2) {
+                    state.bossHp = Math.max(0, state.bossHp - 1);
+                    bossHpText.textContent = `${state.bossHp} / ${state.bossMaxHp} HP`;
+                    bossHpBar.style.width = `${(state.bossHp / state.bossMaxHp) * 100}%`;
+
+                    createCollectParticles(proj.position);
+
+                    scene.remove(proj);
+                    state.playerProjectiles.splice(i, 1);
+
+                    // Boss Defeated Check
+                    if (state.bossHp <= 0) {
+                        defeatBoss();
+                        return;
+                    }
+                }
+            }
+
+            // Boss Attacks Updates (Flying backwards at player)
+            bossAttackPattern();
+
+            for (let i = state.bossProjectiles.length - 1; i >= 0; i--) {
+                const proj = state.bossProjectiles[i];
+                proj.position.z += 0.28; // Speed towards player reduced for easier dodging
+                proj.rotation.y += 0.08;
+
+                // Collision with player
+                const pBox = new THREE.Box3().setFromObject(playerBody);
+                const projBox = new THREE.Box3().setFromObject(proj);
+
+                if (pBox.intersectsBox(projBox)) {
+                    triggerGameOver();
+                    return;
+                }
+
+                // Remove out of bounds
+                if (proj.position.z > state.playerZ + 5) {
+                    scene.remove(proj);
+                    state.bossProjectiles.splice(i, 1);
+                }
+            }
+        }
+
+        function defeatBoss() {
+            state.bossActive = false;
+            state.bossDefeated = true;
+
+            // Explosion Particles
+            if (state.bossMesh) {
+                for (let i = 0; i < 40; i++) {
+                    createCollectParticles(state.bossMesh.position);
+                }
+                scene.remove(state.bossMesh);
+                state.bossMesh = null;
+            }
+
+            // Clear Boss Projectiles
+            state.bossProjectiles.forEach(p => scene.remove(p));
+            state.bossProjectiles = [];
+
+            // Hide Boss HP HUD
+            bossHpContainer.classList.add('hidden');
+
+            // Victory Banner
+            bossBanner.innerHTML = `
+                <div class="bg-emerald-600/90 text-white px-8 py-4 rounded-3xl font-black text-2xl md:text-4xl tracking-widest border-4 border-amber-300 shadow-2xl shadow-emerald-600/80 uppercase animate-bounce">
+                    🎉 VICTOIRE SUR BOISSEL !
+                </div>
+                <p class="text-amber-300 font-extrabold text-base mt-2 bg-slate-900/80 px-4 py-1 rounded-full border border-amber-400/30">
+                    +1000 MÈTRES BONUS ACCORDÉS !
+                </p>
+            `;
+            bossBanner.classList.remove('hidden');
+            setTimeout(() => {
+                bossBanner.classList.remove('scale-90', 'opacity-0');
+            }, 50);
+
+            setTimeout(() => {
+                bossBanner.classList.add('scale-90', 'opacity-0');
+                setTimeout(() => bossBanner.classList.add('hidden'), 300);
+            }, 3500);
+
+            // Bonus Distance
+            state.playerZ -= 1000;
+        }
+
+        function spawnCoffeeGroup(laneX, startZ) {
+            for (let i = 0; i < 3; i++) {
+                const coffeeGroup = new THREE.Group();
+
+                // Coffee Mug Geometry
+                const mugGeo = new THREE.CylinderGeometry(0.22, 0.18, 0.4, 12);
+                const mugMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.2 }); // Blue mug
+                const mug = new THREE.Mesh(mugGeo, mugMat);
+                coffeeGroup.add(mug);
+
+                // Handle
+                const handleGeo = new THREE.TorusGeometry(0.12, 0.04, 8, 12);
+                const handle = new THREE.Mesh(handleGeo, mugMat);
+                handle.position.set(0.22, 0, 0);
+                coffeeGroup.add(handle);
+
+                coffeeGroup.position.set(laneX, 0.7, startZ - (i * 2.5));
+                scene.add(coffeeGroup);
+                state.coinsList.push(coffeeGroup);
+            }
+        }
+
+        // --- PARTICLES ---
+        function createCollectParticles(pos) {
+            const count = 12;
+            const geom = new THREE.BufferGeometry();
+            const positions = [];
+            const vels = [];
+
+            for(let i = 0; i < count; i++) {
+                positions.push(pos.x, pos.y, pos.z);
+                vels.push(
+                    (Math.random() - 0.5) * 0.2,
+                    Math.random() * 0.2 + 0.1,
+                    (Math.random() - 0.5) * 0.2
+                );
+            }
+
+            geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            const mat = new THREE.PointsMaterial({ color: 0xf59e0b, size: 0.18, transparent: true, opacity: 1 });
+            const pSystem = new THREE.Points(geom, mat);
+            pSystem.userData = { vels, life: 1.0 };
+            
+            scene.add(pSystem);
+            state.particles.push(pSystem);
+        }
+
+        function updateParticles() {
+            for (let i = state.particles.length - 1; i >= 0; i--) {
+                const p = state.particles[i];
+                const positions = p.geometry.attributes.position.array;
+                const vels = p.userData.vels;
+
+                for (let j = 0; j < vels.length / 3; j++) {
+                    positions[j * 3] += vels[j * 3];
+                    positions[j * 3 + 1] += vels[j * 3 + 1];
+                    positions[j * 3 + 2] += vels[j * 3 + 2];
+                }
+
+                p.geometry.attributes.position.needsUpdate = true;
+                p.userData.life -= 0.05;
+                p.material.opacity = p.userData.life;
+
+                if (p.userData.life <= 0) {
+                    scene.remove(p);
+                    p.geometry.dispose();
+                    p.material.dispose();
+                    state.particles.splice(i, 1);
+                }
+            }
+        }
+
+        // --- CONTROLS ---
+        function setupEventListeners() {
+            window.addEventListener('keydown', (e) => {
+                if (!state.isPlaying) return;
+
+                if (e.key === 'ArrowLeft' || e.key === 'q' || e.key === 'Q') {
+                    moveLane(-1);
+                } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+                    moveLane(1);
+                }
+            });
+
+            let touchStartX = 0;
+            let touchStartY = 0;
+
+            window.addEventListener('touchstart', (e) => {
+                touchStartX = e.changedTouches[0].screenX;
+                touchStartY = e.changedTouches[0].screenY;
+            }, { passive: true });
+
+            window.addEventListener('touchend', (e) => {
+                if (!state.isPlaying) return;
+                const dx = e.changedTouches[0].screenX - touchStartX;
+                const dy = e.changedTouches[0].screenY - touchStartY;
+
+                if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 30) {
+                    if (dx < 0) moveLane(-1);
+                    else moveLane(1);
+                }
+            }, { passive: true });
+
+            document.getElementById('start-btn').addEventListener('click', startGame);
+            document.getElementById('restart-btn').addEventListener('click', restartGame);
+            document.getElementById('btn-left').addEventListener('click', () => moveLane(-1));
+            document.getElementById('btn-right').addEventListener('click', () => moveLane(1));
+        }
+
+        function moveLane(dir) {
+            const newLane = state.currentLane + dir;
+            if (newLane >= 0 && newLane <= 2) {
+                state.currentLane = newLane;
+                state.targetX = CONFIG.lanes[state.currentLane];
+            }
+        }
+
+        // --- GAME LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (state.isPlaying) {
+                updateGameLogic();
+            } else if (playerGroup) {
+                // Idle Menu Animation
+                playerGroup.position.y = Math.sin(Date.now() * 0.003) * 0.05;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function updateGameLogic() {
+            state.frameCount++;
+
+            // Acceleration
+            if (state.speed < CONFIG.speedMax) {
+                state.speed += CONFIG.speedAcceleration;
+            }
+
+            // Continuous Forward Motion
+            state.playerZ -= state.speed;
+            playerGroup.position.z = state.playerZ;
+
+            // Score Distance
+            state.distance = Math.abs(state.playerZ);
+            scoreText.textContent = Math.floor(state.distance);
+
+            // Trigger Mega Boss at 200m
+            if (state.distance >= 200 && !state.bossActive && !state.bossDefeated) {
+                spawnMegaBoss();
+            }
+
+            // Lane Transition (Smooth X)
+            playerGroup.position.x += (state.targetX - playerGroup.position.x) * 0.22;
+            
+            // Banking / Body Rotation
+            const tilt = (playerGroup.position.x - state.targetX) * 0.25;
+            playerGroup.rotation.z = tilt;
+            playerGroup.rotation.y = -tilt * 0.4;
+
+            // Worker Running Animation (Limb Movements)
+            const runCycle = Math.sin(state.frameCount * 0.25);
+            leftArm.rotation.x = runCycle * 0.6;
+            rightArm.rotation.x = -runCycle * 0.6;
+            leftLeg.rotation.x = -runCycle * 0.7;
+            rightLeg.rotation.x = runCycle * 0.7;
+            briefcase.position.z = -runCycle * 0.1;
+
+            // Boss Fight Update
+            if (state.bossActive) {
+                updateBossBattle();
+            }
+
+            // Animation propre aux logos Google Meet
+            state.obstacles.forEach(obs => {
+                if (obs.userData && obs.userData.isMeetLogo) {
+                    obs.rotation.y = Math.sin(state.frameCount * 0.05) * 0.25;
+                    obs.position.y = 1.25 + Math.sin(state.frameCount * 0.08) * 0.12;
+                }
+            });
+
+            // Camera Following
+            camera.position.z = playerGroup.position.z + CONFIG.cameraOffset.z;
+            camera.position.y = CONFIG.cameraOffset.y;
+            camera.position.x += (playerGroup.position.x * 0.4 - camera.position.x) * 0.1;
+            camera.lookAt(playerGroup.position.x * 0.2, 1.2, playerGroup.position.z - 5);
+
+            // Direct Light Follows Player
+            dirLight.position.set(playerGroup.position.x + 10, 25, playerGroup.position.z + 10);
+
+            // World & Spawns Update
+            updateWorld();
+            spawnEntitiesAhead();
+
+            // OBSTACLE COLLISIONS
+            for (let i = state.obstacles.length - 1; i >= 0; i--) {
+                const obs = state.obstacles[i];
+
+                const pBox = new THREE.Box3().setFromObject(playerBody);
+                const oBox = new THREE.Box3().setFromObject(obs);
+
+                if (pBox.intersectsBox(oBox)) {
+                    triggerGameOver();
+                    return;
+                }
+
+                if (obs.position.z > state.playerZ + 10) {
+                    scene.remove(obs);
+                    state.obstacles.splice(i, 1);
+                }
+            }
+
+            // COFFEE COLLECTION
+            for (let i = state.coinsList.length - 1; i >= 0; i--) {
+                const coffee = state.coinsList[i];
+                coffee.rotation.y += 0.04;
+
+                const pBox = new THREE.Box3().setFromObject(playerBody);
+                const cBox = new THREE.Box3().setFromObject(coffee);
+
+                if (pBox.intersectsBox(cBox)) {
+                    state.coins += 1;
+                    coinsText.textContent = state.coins;
+                    
+                    createCollectParticles(coffee.position);
+
+                    scene.remove(coffee);
+                    state.coinsList.splice(i, 1);
+                    continue;
+                }
+
+                if (coffee.position.z > state.playerZ + 10) {
+                    scene.remove(coffee);
+                    state.coinsList.splice(i, 1);
+                }
+            }
+
+            updateParticles();
+        }
+
+        // --- STATE CONTROL ---
+        function startGame() {
+            state.isPlaying = true;
+            state.distance = 0;
+            state.coins = 0;
+            state.speed = CONFIG.speedInitial;
+            state.currentLane = 1;
+            state.targetX = CONFIG.lanes[1];
+            state.frameCount = 0;
+            state.playerZ = 0;
+            state.nextSpawnZ = -30;
+            state.bossActive = false;
+            state.bossDefeated = false;
+
+            startScreen.classList.add('hidden', 'opacity-0');
+            gameOverScreen.classList.add('hidden', 'opacity-0');
+            bossHpContainer.classList.add('hidden');
+            hud.classList.remove('opacity-0');
+            touchControls.classList.remove('opacity-0');
+
+            playerGroup.position.set(CONFIG.lanes[1], 0, 0);
+            playerGroup.rotation.set(0, 0, 0);
+        }
+
+        function triggerGameOver() {
+            state.isPlaying = false;
+
+            if (state.distance > state.highScore) {
+                state.highScore = Math.floor(state.distance);
+                localStorage.setItem('officerunner_highscore', state.highScore);
+            }
+
+            finalScore.textContent = Math.floor(state.distance) + " m";
+            finalCoins.textContent = state.coins;
+            finalBest.textContent = Math.floor(state.highScore) + " m";
+            highScoreText.textContent = Math.floor(state.highScore);
+
+            gameOverScreen.classList.remove('hidden');
+            setTimeout(() => {
+                gameOverScreen.classList.remove('opacity-0');
+            }, 50);
+        }
+
+        function clearWorldEntities() {
+            state.obstacles.forEach(obs => scene.remove(obs));
+            state.coinsList.forEach(c => scene.remove(c));
+            state.chunks.forEach(c => scene.remove(c.group));
+            state.playerProjectiles.forEach(p => scene.remove(p));
+            state.bossProjectiles.forEach(p => scene.remove(p));
+            if (state.bossMesh) scene.remove(state.bossMesh);
+
+            state.obstacles = [];
+            state.coinsList = [];
+            state.chunks = [];
+            state.playerProjectiles = [];
+            state.bossProjectiles = [];
+            state.bossMesh = null;
+        }
+
+        function restartGame() {
+            clearWorldEntities();
+            initWorld();
+            startGame();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        window.onload = () => {
+            init();
+            animate();
+        };
+    </script>
+</body>
+</html>
